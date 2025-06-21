@@ -98,11 +98,25 @@ tr:nth-child(even) {
 .main-nav button:hover {
   background-color: #0056b3;
 }
-
-.delete-button {
-  background-color: #dc3545; /* A standard red color for delete actions */
+/* Add to the bottom of src/index.css */
+.edit-button {
+  background-color: #ffc107;
+  color: #212529;
+  margin-right: 5px;
 }
-
+.edit-button:hover {
+  background-color: #e0a800;
+}
+.delete-button {
+  background-color: #dc3545;
+}
 .delete-button:hover {
   background-color: #c82333;
+}
+.cancel-button {
+  background-color: #6c757d;
+  margin-left: 10px;
+}
+.cancel-button:hover {
+  background-color: #5a6268;
 }

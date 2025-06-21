@@ -1,6 +1,8 @@
 // src/main.js
-const { app, BrowserWindow } = require('electron');
-require('./database/database.js');
+console.log('---- LOADING LATEST main.js ----');
+
+const { app, BrowserWindow, ipcMain } = require('electron');
+const db = require('./database/database.js');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -40,26 +42,22 @@ app.on('activate', () => {
   }
 });
 
-// Add to the bottom of src/main.js
+// =================================================================
+// --- IPC HANDLERS (Database communication) ---
+// =================================================================
 
-const { ipcMain } = require('electron');
-const db = require('./database/database.js');
+// --- Employee Handlers ---
 
 ipcMain.handle('add-employee', (event, employeeData) => {
   try {
     const { firstName, lastName, email, payRate, payType } = employeeData;
-    const stmt = db.prepare(
-      'INSERT INTO employees (firstName, lastName, email, payRate, payType) VALUES (?, ?, ?, ?, ?)'
-    );
-    const info = stmt.run(firstName, lastName, email, payRate, payType);
-    console.log(`Employee added with ID: ${info.lastInsertRowid}`);
+    const stmt = db.prepare('INSERT INTO employees (firstName, lastName, email, payRate, payType) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(firstName, lastName, email, payRate, payType);
     return { success: true, message: 'Employee added successfully.' };
   } catch (error) {
-    console.error('Database error:', error);
     return { success: false, message: 'Failed to add employee.' };
   }
 });
-
 
 ipcMain.handle('get-employees', () => {
   try {
@@ -67,25 +65,46 @@ ipcMain.handle('get-employees', () => {
     const employees = stmt.all();
     return { success: true, employees };
   } catch (error) {
-    console.error('Database error:', error);
     return { success: false, message: 'Failed to retrieve employees.' };
   }
 });
 
-// Add to the bottom of src/main.js
+ipcMain.handle('delete-employee', (event, employeeId) => {
+  try {
+    const stmt = db.prepare('DELETE FROM employees WHERE id = ?');
+    const info = stmt.run(employeeId);
+    if (info.changes > 0) return { success: true, message: 'Employee deleted successfully.' };
+    return { success: false, message: 'Employee not found.' };
+  } catch (error) {
+    return { success: false, message: 'Failed to delete employee.' };
+  }
+});
+
+ipcMain.handle('update-employee', (event, employeeId, employeeData) => {
+  try {
+    const { firstName, lastName, email, payRate, payType } = employeeData;
+    const stmt = db.prepare('UPDATE employees SET firstName = ?, lastName = ?, email = ?, payRate = ?, payType = ? WHERE id = ?');
+    const info = stmt.run(firstName, lastName, email, payRate, payType, employeeId);
+    if (info.changes > 0) return { success: true, message: 'Employee updated successfully.' };
+    return { success: false, message: 'Employee not found or no changes made.' };
+  } catch (error) {
+    return { success: false, message: 'Failed to update employee.' };
+  }
+});
+
+// --- Client Handlers ---
 
 ipcMain.handle('add-client', (event, clientData) => {
   try {
-    const { name, contact_person, contact_email } = clientData;
-    const stmt = db.prepare(
-      'INSERT INTO clients (name, contact_person, contact_email) VALUES (?, ?, ?)'
-    );
-    const info = stmt.run(name, contact_person, contact_email);
-    console.log(`Client added with ID: ${info.lastInsertRowid}`);
+    const { name, contact_person, email, phone } = clientData;
+    const stmt = db.prepare('INSERT INTO clients (name, contact_person, email, phone) VALUES (?, ?, ?, ?)');
+    stmt.run(name, contact_person, email, phone);
     return { success: true, message: 'Client added successfully.' };
   } catch (error) {
-    console.error('Database error adding client:', error);
-    return { success: false, message: 'Failed to add client. The client name may already exist.' };
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return { success: false, message: `A client with the name "${clientData.name}" already exists.` };
+    }
+    return { success: false, message: 'Failed to add client.' };
   }
 });
 
@@ -95,103 +114,33 @@ ipcMain.handle('get-clients', () => {
     const clients = stmt.all();
     return { success: true, clients };
   } catch (error) {
-    console.error('Database error getting clients:', error);
     return { success: false, message: 'Failed to retrieve clients.' };
   }
 });
 
-// Add to the bottom of src/main.js
+// --- Time Entry Handlers ---
 
 ipcMain.handle('log-time', (event, timeEntryData) => {
   try {
     const { employee_id, entry_date, hours, project } = timeEntryData;
-    const stmt = db.prepare(
-      'INSERT INTO time_entries (employee_id, entry_date, hours, project) VALUES (?, ?, ?, ?)'
-    );
-    const info = stmt.run(employee_id, entry_date, hours, project);
-    console.log(`Time entry added with ID: ${info.lastInsertRowid}`);
+    const stmt = db.prepare('INSERT INTO time_entries (employee_id, entry_date, hours, project) VALUES (?, ?, ?, ?)');
+    stmt.run(employee_id, entry_date, hours, project);
     return { success: true, message: 'Time entry logged successfully.' };
   } catch (error) {
-    console.error('Database error:', error);
     return { success: false, message: 'Failed to log time entry.' };
   }
 });
 
-// Add to the bottom of src/main.js
-
-// Add this to the bottom of src/main.js
-
 ipcMain.handle('get-time-entries', () => {
   try {
     const query = `
-      SELECT
-        te.id,
-        te.entry_date,
-        te.hours,
-        te.project,
-        emp.firstName,
-        emp.lastName
-      FROM time_entries te
-      JOIN employees emp ON te.employee_id = emp.id
-      ORDER BY te.entry_date DESC
-    `;
+      SELECT te.id, te.entry_date, te.hours, te.project, emp.firstName, emp.lastName
+      FROM time_entries te JOIN employees emp ON te.employee_id = emp.id
+      ORDER BY te.entry_date DESC`;
     const stmt = db.prepare(query);
     const timeEntries = stmt.all();
     return { success: true, timeEntries };
   } catch (error) {
-    console.error('Database error:', error);
     return { success: false, message: 'Failed to retrieve time entries.' };
   }
-
-  ipcMain.handle('add-client', (event, clientData) => {
-    try {
-      const { name, contact_person, email, phone } = clientData;
-      const stmt = db.prepare(
-        'INSERT INTO clients (name, contact_person, email, phone) VALUES (?, ?, ?, ?)'
-      );
-      const info = stmt.run(name, contact_person, email, phone);
-      console.log(`Client added with ID: ${info.lastInsertRowid}`);
-      return { success: true, message: 'Client added successfully.' };
-    } catch (error) {
-      console.error('Database error:', error);
-      // Handle unique constraint error specifically
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-          return { success: false, message: `Failed to add client. A client with the name "${clientData.name}" already exists.` };
-      }
-      return { success: false, message: 'Failed to add client.' };
-    }
-  });
-
-
-  ipcMain.handle('get-clients', () => {
-    try {
-      const stmt = db.prepare('SELECT * FROM clients ORDER BY name ASC');
-      const clients = stmt.all();
-      return { success: true, clients };
-    } catch (error) {
-      console.error('Database error:', error);
-      return { success: false, message: 'Failed to retrieve clients.' };
-    }
-  });
-
-// Add to the bottom of src/main.js
-
-  ipcMain.handle('delete-employee', (event, employeeId) => {
-  try {
-  const stmt = db.prepare('DELETE FROM employees WHERE id = ?');
-  const info = stmt.run(employeeId);
-
-  if (info.changes > 0) {
-    console.log(`Deleted employee with ID: ${employeeId}`);
-    return { success: true, message: 'Employee deleted successfully.' };
-  } else {
-    return { success: false, message: 'Employee not found.' };
-  }
-  } catch (error) {
-  console.error('Database error:', error);
-  return { success: false, message: 'Failed to delete employee.' };
-  }
-  });
-
-
 });
